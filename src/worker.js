@@ -1,7 +1,11 @@
 /* ============================================================
  * AI Worker:只是一层薄壳
  *   收 { id, moves, nodes, ms, depth, jitter }
- *   回 { id, move, depth, nodes, ms, score, mate }
+ *   逐层回 { id, type:'progress', depth, move, score, nodes, ms }
+ *   结束回 { id, move, depth, nodes, ms, score, mate }
+ *
+ * 逐层回报是给 UI 的搜索信息行用的:搜索在 Worker 里同步跑,但主线程是空的,
+ * 所以这些消息能实时送到,画面上就能看到深度一层层涨。
  *
  * moves 是 (from<<7|to) 的走法序列 —— 传序列而不是传棋盘:结构化克隆最省,
  * 且 UI 与 Worker 共用同一份 engine.js,走法编码天然一致,不存在两条解析路径。
