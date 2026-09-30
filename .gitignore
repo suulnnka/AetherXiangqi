@@ -17,3 +17,4 @@ training/ckpt/
 
 # rust trainer build
 tools/training/target/
+__pycache__/
