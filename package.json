@@ -1,23 +1,13 @@
 {
   "name": "aether-xiangqi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "纯 JS 中国象棋(Xiangqi)引擎:完整走子规则 + alpha-beta 迭代加深 + 置换表 + 静态搜索 + 中文记谱,零依赖、无 DOM",
-  "main": "src/engine.js",
-  "exports": {
-    ".": "./src/engine.js",
-    "./engine": "./src/engine.js"
-  },
-  "scripts": {
-    "test": "node test/engine-test.mjs",
-    "bench": "node bench/bench.mjs nps",
-    "perft": "node bench/bench.mjs perft"
-  },
+  "description": "AetherXiangqi:Zig 实现的中国象棋引擎(AetherChess3 架构移植,NNUE 蒸馏评估),Web UI 为零构建静态页",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/suulnnka/AetherXiangqi.git"
   },
-  "keywords": ["xiangqi", "chinese-chess", "engine", "alpha-beta", "象棋"],
+  "keywords": ["xiangqi", "chinese-chess", "engine", "zig", "nnue", "象棋"],
   "private": false
 }

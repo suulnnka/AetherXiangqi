@@ -2,3 +2,15 @@ node_modules/
 dist/
 *.log
 .dbg*.mjs
+
+# Zig 构建产物
+.zig-cache/
+zig-out/
+aetherx
+wasm/*.wasm
+
+# 训练数据与产物(受 docs/ROADMAP.md §7 的 100G 磁盘预算管控)
+data/
+training/ckpt/
+*.aex2
+*.nnue.rice.tmp
