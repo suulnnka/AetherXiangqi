@@ -1,93 +1,314 @@
-# AetherXiangqi 路线图
+# AetherXiangqi 工程计划(Zig 版)
 
-> v0.1 的定位:**规则正确、能下、代码简单**。perft 已经对齐公认计数
-> (44 / 1,920 / 79,666 / 3,290,240),搜索和评估都是第一版,刻意没有堆技巧。
-> 下面按「先补齐规则缺口 → 再增强搜索 → 再升级评估 → 最后上工程化」排优先级,
-> 每一期都写清楚**验收方法**,不做完不算完。
-
-现状基线(本机 Node 22,数组棋盘):约 **85 万节点/s**,高级档 600k 节点 ≈ 0.7s 到 5~6 层,
-引擎 chunk gzip 3.5 KB(**预算 35 KB**,与国际象棋引擎同档)。
-
-本路线图**只覆盖引擎本身**:WebOS 应用侧(棋谱导入导出、3D 视图、棋钟等)不在此列。
+> 本文取代旧版 JS 时代路线图(旧内容在 git 历史 `v0.1-js` 可查)。
+> 方向:**用 Zig 全面移植 AetherChess3 的架构**,评估用 **NNUE(蒸馏 Pikafish 教师网络)**,
+> **不做开局库**,JS 引擎在 P0 删除。每个阶段都有验收门槛,不做完不算完。
 
 ---
 
-## P0 —— 规则与对局完整性(不做完,棋就下不完整)
+## 1. 定位与总原则
 
-棋类引擎的规则缺口会在中残局放大成明显错棋,优先级高于一切棋力优化。
+1. **逐模块对应移植 AetherChess3**(本机 Zig 同为 0.16.0,惯用法直接照抄):
+   `types / board / see / search / tt / tunables / uci / main / nnue / wasm / out` 全部对应;
+   `book.zig`、`book.bin` **不移植**。
+2. **评估两步走**:P1 引擎先带**临时 HCE**(子力+PST,数值取自 v0.1-js)保证可下、可测、可对拍;
+   P2 由本地 **Pikafish 的 NNUE(教师)静态评估**蒸馏出自训小网(学生)换入,随后删除 HCE。
+   教师标注**不做任何深度搜索**。
+3. **盘面数据:下载 Px0 为主,自产随机走子为辅/兜底**(详见 §5)。
+4. **磁盘硬上限 100 GB**,单列预算与管控(§7)。
+5. JS 引擎删除:规则正确性改用「公开 perft 值 + Pikafish 二进制对拍」双重 oracle(§4.6)。
+6. 单线程搜索(与 A3 一致);多线程不做。
 
-1. **重复局面与长将判负**
-   现行搜索里没有局面历史,遇到「长将」会反复走出同一循环,甚至把必败走成和棋。
-   - 做法:搜索里维护从根到当前节点的 Zobrist 链(已具备双 32 位键),命中即判和;
-     并补中国象棋特有的**长将 / 长捉判负**(连续 N 次将军或捉子判负,规则细节以《象棋竞赛规则》为准)。
-   - 验收:构造长将局面,引擎不再循环同一着法;对拍随机对局,重复局面出现率归零。
-2. **自然限着**
-   60 回合无吃子判和(竞技规则),避免无尽空转。
-3. **困毙与将死的区别**
-   目前两者都返回 `-MATE + ply`(规则上都是负)。对外要能区分这两种终局
-   (`searchBest` 结果里带一个终局类型标记),调用方才知道是哪一种 —— 至于怎么提示,
-   那是调用方的事,不归本路线图管。
+## 2. 现状与资产
 
----
+| 资产 | 用途 |
+|---|---|
+| `../AetherChess3`(Zig 0.16.0,MIT + 4ku MIT) | 架构蓝本,逐文件参照移植 |
+| `../Pikafish.2026-09-06/Pikafish-Linux-x86-64-universal` | 教师 eval 进程、UCI 方言与规则对拍 oracle、强度标尺 |
+| `../Pikafish.2026-09-06/pikafish.nnue`(50.7 MB zstd → 66 MB raw) | 教师网络(只通过二进制使用,不解析进引擎) |
+| 本仓库 `pages/` + `src/worker.js` | 保留的 Web UI;worker 改为驱动 wasm(§9) |
+| 本仓库 `src/engine.js`(JS 引擎) | **P0 删除**(先打 tag),git 历史留作开发期备用对照 |
+| 环境:Zig 0.16.0 / Rust 1.98.1 / Python 3.14.6 / 16 核 / zstd 1.5.7 | 工具链事实,写死在文档避免漂移 |
 
-## P1 —— 搜索增强(同样的节点预算下多看 2~3 层)
+教师网络架构(已解析,仅备查,不进引擎):双特征集
+`full_threats`(45,547 维)+ `HalfKAv2_hm`(16,536 维)→ FT 1024 → 16 层栈 ×(2048→32→32→1),
+SCReLU/CReLU,输出 scale 600。
 
-按「收益 / 复杂度」排序,逐项**单独开关、单独对拍**:
+## 3. 模块对应表(AetherChess3 → AetherXiangqi)
 
-1. **PVS(主变搜索)**:全窗口搜第一个着法,其余用零窗口试探,失败再重搜。
-   几乎是纯赚,先做。
-2. **空着裁剪(null move)**:象棋里空着不如国际象棋安全(被将时不能用),
-   需要限制:不在被将时、且至少有 1 个大子时使用。
-3. **迟着裁减(LMR)+ 静着裁剪(futility)**:深度 ≥3 且非吃子、非将军的靠后着法减深度。
-4. **aspiration 窗口 + 置换表分级**:TT 改成「深度优先替换 + 世代替换」两级,
-   配合 aspiration 减少迭代间的重搜。
-5. **杀棋搜索**:接近残局时(子力少)进入专门的 mate search,直接算杀。
+| AetherChess3 | 移植方式 |
+|---|---|
+| `types.zig` | 90 格、7 类棋子;`Move{from,to,promo}` 仍 3 字节,promo 字节空置 |
+| `board.zig` | **重写棋规**,框架保留(§4) |
+| `see.zig` | 交换算法保留;炮的隔屏吃破坏 x-ray 假设 → 每步从当前占位**重算**攻击者(§8.2) |
+| `search.zig` | 骨架全量移植 + 象棋化改动(§8) |
+| `tt.zig` | 原样移植(游戏无关:16B 条目 `{key u64, Move 3B, flag u8, score i16, depth i16}`,双槽:深度优先 + 永远替换,默认 64 MiB) |
+| `nnue.zig` | 特征集 1260、桶公式、SCReLU、量化、rice 解码器原样;去 M1 镜像(§6);P2 落地 |
+| (新增) `eval.zig` | **临时 HCE**(子力 + PST,数值取自 v0.1-js git 历史),P1–P2 间过渡,P2 后删除 |
+| `tunables.zig` | 同机制,环境变量 `A3X_SEARCH_PARAMS / A3X_STACK_PARAMS / A3X_MAT_PARAMS` |
+| `uci.zig` / `main.zig` | 同命令集 + debug 命令;bench 子命令(§9.1) |
+| `wasm.zig` | 同导出面,90 格棋盘,wire 走法 `from<<7|to`(§9.2) |
+| `out.zig` | 原样(着法串格式改象棋) |
+| `book.zig` / `book.bin` | **不移植** |
+| `tools/training/trainer2.rs` | → `tools/training/trainer.rs`(§10) |
+| `tools/gen_rice.py` | 参数化沿用(网络头不变) |
+| `tools/build-wasm.sh`、`wasm_diff_test.mjs`、`worker-test.mjs` | 沿用思路,象棋化 |
+| (无对应) | **新增**:`datagen.zig`(盘面生成子命令)、`tools/teacher_label.mjs`(教师标注)、`tools/match.mjs`(SPRT 自对弈) |
 
-**验收口径**(沿用 webos 的规矩,确定性优先):
-- 固定节点预算下能跑到的**平均深度**(测 6 个中局局面取均值);
-- 固定深度下所需**节点数**(越小越好);
-- 新版本 vs 当前版本**成对自对弈**至少 200 局(先后手各半),胜率显著才算通过。
-- `perft` 必须保持不变 —— 搜索改动不许碰规则。
+## 4. 棋规与棋盘表示
 
----
+### 4.1 坐标、FEN、着法
 
-## P2 —— 评估升级(决定「棋风」的部分)
+- **UCI 方言完全兼容 Pikafish**(GUI 即插即用):文件 `a`–`i`、行 `0`–`9`,**行 0 = 红方底线**,红大写。
+  着法如 `h2e2`(炮二平五)。startpos FEN:
+  `rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1`
+- 棋子类型序:`P=0, A=1, B=2, N=3, R=4, C=5, K=6`(K 最后,同 A3 习惯);
+  邮箱字节 `id = color*7 + type`(0..13),空 `0xFF`;color 0=红 1=黑。
+- 现有 UI 内部坐标(第 0 行 = 黑方底线)与 UCI 坐标的换算只在 `wasm.zig` 一处完成(带单测)。
 
-现在只有「子力 + PST」,中局知识基本为零。分三步走,每步都要自对弈验证:
+### 4.2 表示
 
-1. **补中局特征**
-   - 子力机动性(车/马/炮的真实可走点数)
-   - 将帅安全:士象完整度、「缺士怕炮」「残局炮回家」等经典项
-   - 兵的推进与过河兵威胁、车占肋道 / 巡河、马卧槽、炮镇中路等形状项
-2. **参数拟合**:照 AetherChess 的经验 —— 先自对弈生成局面样本,再用 Texel
-   调参(最小化评估与对局结果的偏差),而不是手调。手调 PST 很容易把
-   「看起来合理」写成「实际掉分」。
-3. **相位插值**:开局 / 中局 / 残局三套权重插值(残局里兵和车的重要性完全不同)。
+- **u128 位棋盘**(Zig 原生):`colour[2]u128`(绝对色,不翻转)+ `pieces[7]u128` + `board[90]u8` 邮箱
+  + `king_sq[2]u8` + 增量 `hash: u64` + `stm / halfmove`。结构对应 A3 `Position`。
+- 预生成表:马可行点+蹩腿位、象可行点+塞眼位+过河限制、士/将宫内点、兵 `attacks[2][90]u128`
+  (未过河直进 / 过河加横)、车四向射线、`between[90][90]u128`(将军掩码、照面、SEE 共用)。
+- Zobrist:沿用 A3 的 MT19937_64(seed 5489,libstdc++ 淬火变体);键布局按 14×90 重排;
+  行棋方 `hash ^= 1`。`make` 增量、`getHash` 全量重算,双通道对拍。
 
-**注意**:评估一旦改动,搜索侧所有 cp 尺度魔数(futility 裕度等)都要重新标定,
-否则它们全在错的尺度上 —— 这个坑 AetherChess 踩过。
+### 4.3 走法生成与 make/unmake
 
----
+- **伪合法生成 + make 后验证**(与被删 JS 引擎同策略,正确性优先);
+  A3 的 checkmask/pinmask 合法生成留作 P5 性能项。
+- 将帅照面(飞将):进 `isAttacked`(王对王沿文件无阻挡视为受攻击)与走后合法性。
+- `prepareMove / make / unmake` 两段式保留,删掉易位/EP/升变分支——象棋只有
+  安静着(`-from +to`)与吃子(`-from +to -victim`)两种模式,累加器更新同样只有这两 pattern。
 
-## P3 —— 工程化
+### 4.4 终局与和棋语义
 
-1. **体积闸门**:引擎 worker chunk 的 **gzip ≤ 35 KB**,与国际象棋引擎同一档预算。
-   闸门挂在 webos 侧 `tools/check-size.mjs`(靠 worker 里的字符串标记
-   `xiangqi-engine-v1` 定位 chunk),`npm run build` 会拦。当前 3.5 KB,余量充足,
-   作用是防止将来评估表 / 参数膨胀把首屏拖垮。
+- 无合法着法:**将死与困毙都 = `-mate + ply`**(规则上均为负)。
+- 重复:搜索内 2-fold = 和(0);游戏层 3-fold 判定 + **简化长将规则**
+  (循环窗口内单方每着均照将 → 该方负;双方均长将 → 和)。
+- 60 回合无吃子判和;`halfmove` 与哈希历史窗口的清零点(吃子/兵着)
+  以 **Pikafish 构造局面 `go depth 1` 对拍**为准,实施时校正。
 
----
+### 4.5 perft 基准
 
-## 不做的事(已拍板)
+startpos 逐层:**44 / 1,920 / 79,666 / 3,290,240**(d1–4,公开发表值)。
+另构造专项 FEN:马腿、象眼、炮架、宫限、兵过河横走、照面、困毙、长将。
+更深层(d5+)以 Pikafish `go perft N` 对拍为准。
 
-- **不做 UCCI**:不接主流象棋 GUI,也不跟 Pikafish / ElephantEye 对打。
-  ⇒ 棋力标定改为**自对弈 A/B**(固定节点预算、≥200 局、先后手各半),
-  它只能定「新版本是否更强」的**方向**,给不出绝对 Elo —— 这一点要在验收里写清楚,
-  别拿 A/B 胜率去换算 Elo。
-- **不做开局库 / 残局库**:不内置任何着法表,开局与残局一律进搜索。
-- **不做多线程**(Lazy SMP 之类):单线程到底。
-- **暂不上 WASM**:当前未启动。v0.x 单核约 85 万 NPS 对现有四档预算够用;
-  等 JS 侧优化到头再重新评估。真要上,替换 `worker.js` 里那一处调用即可,
-  `engine.js` 保持零依赖才好移植。
-- 不接第三方引擎 / 不开源数据集照抄权重:全部自研,保持与黑白棋、国际象棋两个引擎一致的风格。
-- 不为了「看起来强」去堆不验证的技巧:每一项都要有对拍或自对弈数据。
+### 4.6 规则 oracle(取代 JS 引擎)
+
+1. 公开 perft 值(上表)。
+2. **Pikafish 对拍**:我方引擎随机走子下完整随机对局,每个局面与 Pikafish 的
+   `go perft 1`(合法着法数)比对;专项 FEN 上比对 `go perft 2..4`。
+3. 开发期如需旧 JS 引擎对照,从 git 历史 `git show v0.1-js:src/engine.js` 取,不留在仓库。
+
+## 5. 训练数据
+
+### 5.1 来源 A:Px0 下载(主)
+
+- Px0(Pika Xiangqi Zero,Pikafish 团队的 ODbL 数据)——**可以使用,注明许可即可**:
+  - 下载源与分卷清单在实施首日定位(Pikafish README/Wiki 链接),先取最小分卷验证格式;
+  - **合规**:README 与发布物注明「盘面数据源自 Px0(ODbL)」;本项目**只发布引擎与自训权重,
+    不再分发数据库本身**,不触发 ODbL 的数据库再分发条款;
+  - 自带的对局标签/搜索分仅作交叉校验,**评估标签一律由教师重打**(§6)。
+- 若源不可用 / 格式无法解析 → 回退来源 B。
+
+### 5.2 来源 B:自产随机走子(辅 + 兜底)
+
+`aetherx datagen positions --n N --out pos.txt`(std.Thread 多 worker):
+从 startpos 随机合法走子,混合两种采样:纯均匀随机、吃子/照将加权的随机;
+走子数 0–~150 步混合覆盖开局/中局/残局;Zobrist 去重;跳过无合法着法的终局局面。
+
+### 5.3 统一记录格式 `.aex2`(96 B/条,与 A3 的 72 B `.aet2` 同构)
+
+| 偏移 | 字段 |
+|---|---|
+| 0–89 | `board[90]` 邮箱字节(`color*7+type`,`0xFF` 空) |
+| 90 | `stm` |
+| 91 | 保留 0 |
+| 92–93 | `score` i16 LE(教师 cp,STM 视角,蒸馏主信号) |
+| 94 | `result` u8(0 负 / 1 和 / 2 胜,STM 视角;蒸馏 λ=0 不用,留作未来 WDL) |
+| 95 | 填充 0 |
+
+P1 目标规模:**200 万 – 1000 万**条已标注记录(192–960 MB)。
+
+## 6. 教师标注管线
+
+- **教师 = 本地 Pikafish 二进制的静态 NNUE eval**,零搜索:
+  UCI 流水 `position fen <X>` + `eval`,解析静态 NNUE 分值(白方视角 → STM 视角 cp)。
+- `tools/teacher_label.mjs`:Node 进程池,每核一个 Pikafish 子进程,stdin 批量喂 FEN,
+  汇总写出 `.aex2`(读 FEN 文本流 → 写 96B 记录)。
+- **P0 首日验证项**(计划模式未能试跑,实施第一步):
+  1. `eval` 输出格式、视角、精度(cp 粒度)、吞吐(单进程与 16 进程);
+  2. 若精度/格式不足 → **B1**:`go depth 1`(准静态,仍非深搜);
+  3. 终极兜底 **B2**:在 trainer.rs 内自行实现 pikafish.nnue 前向(布局已解析,§2,
+     但 `full_threats` 特征抽取复杂,工作量大,非必要不做)。
+- **尺度对齐**:教师 cp 空间 → 学生空间用 trainer 的 `--score-scale` 拟合
+  (使学生网输出量级 ≈ 车 900、炮 450、马 400、兵 60;实施时对典型局面最小二乘拟合定值)。
+
+## 7. 磁盘预算(硬上限 100 GB)
+
+| 项 | 预算 |
+|---|---|
+| Px0 原始分卷(`data/raw_px0/`) | ≤ 60 G |
+| `.aex2` 已标注数据(`data/aex2/`) | ≤ 25 G |
+| 训练 checkpoint / 临时(`training/ckpt/`) | ≤ 5 G |
+| 引擎构建、网络、工具产物 | < 1 G |
+| 余量 | ≥ 9 G |
+
+管控规则:
+
+- 所有大数据放 `AetherXiangqi/data/` 与 `training/`(进 `.gitignore`,P0 添加)。
+- **下载门禁**:取任何分卷前 `df` 查余量 + 确认分卷声明体积;总量超 60 G 即停。
+- **转换即删**:`.aex2` 转换校验通过后立即删对应原始分卷。
+- checkpoint 只保留最近 2 代,更旧的自动清理。
+- 每阶段收尾汇报 `du -sh data/ training/`,超预算即触发清理流程。
+
+## 8. 搜索移植(象棋化改动清单)
+
+### 8.1 全量移植的技术(A3 `search.zig` 全家桶)
+
+迭代加深、期望窗(宽度 = `asp_base + score²/16384`,失败倍增)、mate 距离剪枝、
+检查延伸、ply 溢出保护、50/60 回合和棋、2-fold 重复、TT 取剪 + TT 修正静态分、
+IIR、RFP、razoring、NMP(R = `4 + depth/5 + min((eval−beta)/196, 3)`,无验证搜索)、
+单着延伸(SE,PV + depth≥7 + 排除键验证搜索)、着法定序(TT 着 → 历史 + 杀手/反着 +
+MVV-LVA + 续着历史 + 坏吃子降级)、qsearch SEE 剪枝 / delta 剪枝、静着 SEE 剪枝、
+FFP、LMR(`moves/13 + depth/14 + isPV + !improving − clamp(hist/128)` + 失败重搜)、
+PVS、杀手、反着表、历史启发(深度² 加减分,重力 512)、LMP、
+时间管理(预算 `time/3` + 稳定性伸缩 + 紧急 bestmove)、粘性停止标志。
+
+### 8.2 改动点
+
+| 项 | 改法 |
+|---|---|
+| 易位 / EP / 升变 | 全部删除(movegen、make、定序、delta、NMP 相关分支) |
+| NMP 守卫 | 「本方有 车/马/炮」(替代国际象棋的非兵子力守卫) |
+| 无合法着法 | 将死与困毙同为 `-mate + ply`(§4.4) |
+| 重复 / 60 回合 | §4.4;细节对拍 Pikafish 校正 |
+| 子力值表(`max_material` / SEE `piece_val`) | 初始值 P=60 A=110 B=110 N=400 R=900 C=450 K=10000;归入 `A3X_MAT_PARAMS` 供 SPSA |
+| SEE | 交换算法骨架不变;攻击者集合每步从占位**重算**(含炮:目标方向上隔恰好一屏的炮;马/象按蹩腿/塞眼判定),不用增量 x-ray |
+| qsearch | 仍吃子 + 照将延伸照旧(被将时全生成,A3 传统) |
+
+## 9. UCI / WASM / Web
+
+### 9.1 原生 UCI
+
+- `id name AetherXiangqi`,二进制名 `aetherx`;命令:`uci / isready / ucinewgame /
+  position(startpos|fen + 着法)/ go(wtime btime winc binc movetime depth nodes infinite)/ perft / quit`;
+  debug 命令:`d / dmoves / dhash / deval`;`bench` 走 argv(24 个固定局面,记录基准节点数,后续位精确回归)。
+- 选项首期仅 `Hash`;调优期加 `A3X_*` 由环境变量注入(同 A3,wasm 侧恒为默认)。
+
+### 9.2 WASM / Web
+
+- `tools/build-wasm.sh` 同参数(`wasm32-freestanding`,`-fno-entry -rdynamic`,ReleaseFast,strip);
+  导出面同 A3:`engineInit/New/MovesBuf/Load/State/BoardPtr(90B)/Stm/LegalPtr/LegalCount/
+  Check/Over/Result/Winner/EvalCp/Think(depth+node 限制)/Score/Depth/NodesLo/Hi/Bind/Perft`;
+  静态缓冲、零运行时分配(同 A3)。
+- **wire 走法 `from<<7|to` 与现有 UI 完全兼容**,`pages/` 零改动;
+  中文着法 `moveToText` 移植到 `worker.js`(纯展示逻辑,读 wasm 棋盘字节)。
+- 结果码:`0` 进行中 / `1` 将死 / `2` 困毙 / `3` 重复(含长将负,`winner` 区分)/ `4` 60 回合和。
+- 消息协议保持 `ping / levels / state / think` 不变;**JS 引擎删除后、wasm 上线前,
+  Pages 对局页暂时无 AI**(P0→P3 的窗口期,接受)。
+- 体积预期:wasm gzip ≈ 80–90 KB(内嵌 ~55 KB rice 压缩网),旧 35 KB 预算随 JS 引擎一并废止。
+
+## 10. 训练器(trainer2.rs → trainer.rs)
+
+- 无框架 Rust,照 trainer2.rs 结构:镜像学生网 master 参数(f32)、
+  SigmoidMPE(2.6)损失(**λ=0 纯蒸馏**:目标 = `sigmoid(教师cp·score_scale/400)`)、
+  AdamW(wd 0.01,β₁ 0.9 / β₂ 0.999,权重硬截断 ±1.98)、线性衰减 LR、batch 16384、
+  16 epochs、1% 验证集、Spearman 择优、shard 目录流式加载、`--ckpt` f32 断点、`--requant`。
+- 特征索引 `(color*7+type)*90 + sq`(1260);桶 `(pieceCount−2)*7/30` clamp 0..7(象棋同为 2..32 子,公式原样)。
+- 导出 **v4 int8+异常表**(magic `AENN`,ver 4,头 6×u32 + `(u32 idx + i16 真值)` 异常表 +
+  `ft_w` i8 + `ft_b` i8 + `out_w/out_b` i16;QA=101 QV=160 SCALE=400 沿用,必要时连同 `score_scale` 一并重拟);
+  `gen_rice.py` 压缩(“1REA” 容器,值无损)→ `@embedFile`。
+- 换网流程:训练 → Spearman/MAE 达标 → `match.mjs` 自对弈 SPRT(LLR 通过)→ rice 压缩嵌入 → bench 基线更新。
+
+## 11. 测试与验收(贯穿)
+
+| 层 | 手段 | 门槛 |
+|---|---|---|
+| 棋规 | perft(d1–4 + 专项 FEN) | 与公开值 / Pikafish 逐位一致 |
+| 棋规 | 随机对局对拍 | 每局面合法着法数与 Pikafish 一致,≥ 10⁴ 局面 |
+| SEE/评估 | `see_test.zig` 象棋化;`deval` 增量 vs 全量重算 | 逐局面相等 |
+| NNUE | 验证集 Spearman / MAE | Spearman ≥ 0.97(v0) |
+| 搜索 | `bench` 固定节点数 | 位精确回归基线 |
+| 对弈 | `match.mjs`(配对自对弈 SPRT)、vs Pikafish 限深 | 每次换网/换参过 SPRT |
+| Web | `wasm_diff_test.mjs` + `worker-test.mjs` | 全绿 |
+
+## 12. 阶段计划
+
+### P0 —— 脚手架 + 棋规核心 + 管线验证 ✅(2026-09-30 完成)
+- 建仓内结构:`build.zig`(默认 ReleaseFast;wasm 目标注释保留,P3 启用)、`src/types.zig`、`src/board.zig`;
+  `.gitignore` 加 `data/`、`training/ckpt/`。
+- **JS 引擎已删除**:tag `v0.1-js` → 删 `src/engine.js`/`src/worker.js`/`test/`/`bench/`;README/package.json 改版。
+- 验收结果:startpos perft d1–5 = 44 / 1,920 / 79,666 / 3,290,240 / **133,312,995**(d5 与 Pikafish `go perft 5` 逐位一致,
+  perft ≈ 41M nps);随机对局差分 **200 局 / 51,922 局面**合法着法集合与 Pikafish 完全一致
+  (`tools/diff_vs_pikafish.py`;Pikafish 对 Rule60 超范围局面前会崩溃,脚本按 60 回合规则终局);
+  增量 Zobrist 与全量重算 4,304 局面一致。过程中修复:FEN 颜色反转、九宫行越界、
+  合法性捷径漏判(马腿揭将 / 炮架落点造将)、no_move 全零规范化。
+- 教师管线首日验证(Pikafish `eval` 格式/吞吐)顺延至 P2 开工首日。
+
+### P1 —— 引擎完整可用(搜索 + UCI,临时 HCE)✅(2026-09-30 完成,验收余一项)
+- 已移植:`eval.zig(v0.1-js HCE)/ see(炮屏逐层重算)/ tt / search(A3 全家桶,NMP 守卫=有车马炮,
+  困毙=负,60 回合=和)/ tunables(A3X_*)/ uci(Pikafish 方言 + dfen/dhash/dhashfull/dhm/deval/dmoves)/ main`。
+- **bench 基线:968,907 节点 / ~1.5M nps**(13 局面,位精确回归;`./zig-out/bin/aetherx bench`)。
+- 验收余项:vs Pikafish 限深对弈的等级差报告(可与 P2 换网后一并做)。
+
+### P2 —— 数据 + 学生网络(v0)→ 换入 NNUE
+- `datagen.zig`(若 Px0 可用则只为兜底);Px0 转换器 或 随机走子 → FEN 流;
+  `teacher_label.mjs` 标注 → `.aex2`;trainer.rs 训练 → v0 网;`nnue.zig` 接入
+  (累加器两种 pattern + 全量重算双通道)+ `deval`;**删除 `eval.zig`**。
+- **验收**:v0 网 Spearman ≥ 0.97;增量 vs 全量逐局面相等;`deval` 输出量级合理(车≈900);
+  换网自对弈过 SPRT;磁盘用量在预算内(§7)。
+
+### P3 —— WASM + Web
+- `wasm.zig` + 新 `worker.js`(懒加载 wasm,`moveToText` 移入)+ 结果码 + 差分/契约测试。
+- **验收**:`wasm_diff_test` 全绿;Pages 对局页恢复 AI(wasm 后端);UI 零改动或仅换 levels 表。
+
+### P4 —— SPSA 调优
+- 移植三组 SPSA(search 15 / stack 9 / mat 6+),对弈后端用 `match.mjs`;
+  采纳门槛:固定节点门 + 计时门。
+- **验收**:首轮调优完成,基准 bench 更新,自对弈胜率提升有 SPRT 依据。
+
+### P5 —— 可选增强(按需)
+- 学生引导采样再蒸馏(90% 随机 + 10% 学生浅选,仍无深搜);
+- 合法走法生成(checkmask/pinmask 化,照 A3 思路 + 照面/炮 pin 特例);
+- 长将规则细化(长捉等《象棋竞赛规则》细则);
+- 教师前向 B2 自实现(若吞吐成为再蒸馏瓶颈)。
+
+## 13. 许可与合规
+
+1. **引擎本体 MIT**(不变,含 4ku/MIT 派生搜索骨架的二次署名)。
+2. **Px0 数据 ODbL**:使用时在 README/发布物注明来源与许可;不再分发数据库本身;
+   若将来分发衍生数据集,按 ODbL 同许可发布。
+3. **pikafish.nnue 教师**:其权重许可含「非商用」条款,蒸馏所得学生权重可能被视为衍生。
+   自用 / 学习 / 非商用开源发布风险低;**若将来商用,需取得授权或改用自产数据重训**——在此明示。
+   Pikafish 二进制(GPLv3)只作为本地工具运行,不复制其任何代码。
+
+## 14. 风险与备选
+
+| 风险 | 缓解 |
+|---|---|
+| `eval` 输出精度/格式不满足 | B1 `go depth 1`;B2 自实现前向(§6) |
+| Px0 源失效或格式不解析 | 回退自产随机走子(§5.2),管线其余不变 |
+| 炮/马腿在 SEE、将军判定中的边界错误 | 专项 FEN 单测 + Pikafish 对拍(§11) |
+| 学生网太小,蒸馏上限不足 | hidden 64 起步,trainer 留参数;必要时 96/128 并按 SPRT 采纳 |
+| 磁盘超 100 G | §7 门禁:下载前查量、转换即删、ckpt 只留 2 代 |
+| Zig 0.16 stdlib 漂移 | 与 A3 同版本锁死,惯用法照抄 |
+
+## 15. 交付物结构(完成后)
+
+```
+AetherXiangqi/
+  build.zig  docs/ROADMAP.md  README.md
+  src/            types board see search tt tunables uci main nnue datagen wasm out (.zig)
+  src/aetherx.nnue(.rice)          # 自训学生网(嵌入)
+  tools/         build-wasm.sh  gen_rice.py  teacher_label.mjs  match.mjs
+                 wasm_diff_test.mjs  worker-test.mjs  spsa_*.py
+  tools/training/  trainer.rs  Cargo.toml
+  wasm/aetherx.wasm
+  data/  training/                  # gitignore,受 §7 预算管控
+  pages/ index.html                 # 原 UI 保留
+```
