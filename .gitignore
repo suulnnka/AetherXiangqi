@@ -14,3 +14,6 @@ data/
 training/ckpt/
 *.aex2
 *.nnue.rice.tmp
+
+# rust trainer build
+tools/training/target/

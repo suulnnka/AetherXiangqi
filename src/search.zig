@@ -13,7 +13,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const board = @import("board.zig");
-const evalmod = @import("eval.zig");
+const nnue = @import("nnue.zig");
 const tt = @import("tt.zig");
 const out = @import("out.zig");
 const tun = @import("tunables.zig");
@@ -115,6 +115,7 @@ pub const HistList = struct {
 };
 
 const MAX_PLY = 128;
+const Accs = [MAX_PLY + 2]nnue.Acc;
 
 // ---------------------------------------------------------------------------
 // Search
@@ -127,6 +128,7 @@ inline fn exclHash(m: Move) u64 {
 
 fn alphabeta(
     pos: *Position,
+    accs: *Accs,
     alpha_in: i32,
     beta_in: i32,
     depth_in: i32,
@@ -145,7 +147,7 @@ fn alphabeta(
 
     // Don't overflow the stack
     if (ply > 127)
-        return evalmod.evaluate(pos);
+        return nnue.evalAcc(pos, &accs[@intCast(ply)]);
 
     // Mate distance pruning
     if (ply > 0) {
@@ -192,7 +194,7 @@ fn alphabeta(
         depth -= @intFromBool(depth > 3);
     }
 
-    stack[@intCast(ply)].score = evalmod.evaluate(pos);
+    stack[@intCast(ply)].score = nnue.evalAcc(pos, &accs[@intCast(ply)]);
     var static_eval = stack[@intCast(ply)].score;
     const improving = ply > 1 and static_eval > stack[@intCast(ply - 2)].score;
 
@@ -226,12 +228,13 @@ fn alphabeta(
             pos.stm ^= 1;
             pos.hash ^= 1;
             pos.halfmove += 1;
+            @memcpy(&accs[@as(usize, @intCast(ply)) + 1], &accs[@intCast(ply)]);
             // neutral conthist context for the null child (row 14 is never
             // read for ordering context except through this sentinel)
             stack[@intCast(ply)].current = no_move;
             stack[@intCast(ply)].current_pt = 14;
             const null_depth = depth - tun.get(.nmp_base) - @divTrunc(depth, tun.get(.nmp_div)) - @min(@divTrunc(static_eval - beta, tun.get(.nmp_eval_div)), tun.get(.nmp_cap));
-            const v = -alphabeta(pos, -beta, -alpha, null_depth, ply + 1, nodes, stack, hash_history, hh_table, false, no_move);
+            const v = -alphabeta(pos, accs, -beta, -alpha, null_depth, ply + 1, nodes, stack, hash_history, hh_table, false, no_move);
             pos.hash = saved_hash;
             pos.halfmove = saved_halfmove;
             pos.stm ^= 1;
@@ -254,7 +257,7 @@ fn alphabeta(
         tt_entry.score > @as(i32, 200) - mate_score and tt_entry.score < mate_score - 200)
     {
         const beta_v = @as(i32, tt_entry.score) - @divTrunc(tun.get2(.se_margin) * depth, 16);
-        const v = alphabeta(pos, beta_v - 1, beta_v, @divTrunc(depth - 1, tun.get2(.se_vdiv)), ply, nodes, stack, hash_history, hh_table, false, tt_move);
+        const v = alphabeta(pos, accs, beta_v - 1, beta_v, @divTrunc(depth - 1, tun.get2(.se_vdiv)), ply, nodes, stack, hash_history, hh_table, false, tt_move);
         if (v < beta_v)
             ext_se = 1;
     }
@@ -365,6 +368,7 @@ fn alphabeta(
         const minfo = board.prepareMove(pos, move);
         stack[@intCast(ply)].current_pt = @intCast(minfo.us * 7 + minfo.piece);
         const undo = board.make(pos, minfo, move);
+        nnue.applyMoveDeltasAcc(&accs[@intCast(ply)], &accs[@as(usize, @intCast(ply)) + 1], minfo.us, minfo.piece, minfo.from, minfo.to, minfo.victim_ty, minfo.victim_sq);
 
         nodes.* += 1;
         if (nodes.* >= stop_nodes)
@@ -383,14 +387,14 @@ fn alphabeta(
         }
 
         while (num_moves_evaluated != 0) {
-            score = -alphabeta(pos, -alpha - 1, -alpha, depth - reduction - 1 + ext, ply + 1, nodes, stack, hash_history, hh_table, true, no_move);
+            score = -alphabeta(pos, accs, -alpha - 1, -alpha, depth - reduction - 1 + ext, ply + 1, nodes, stack, hash_history, hh_table, true, no_move);
             if (!(score > alpha and reduction > 0))
                 break;
             reduction = 0;
         }
 
         if (num_moves_evaluated == 0 or (score > alpha and score < beta))
-            score = -alphabeta(pos, -beta, -alpha, depth - 1 + ext, ply + 1, nodes, stack, hash_history, hh_table, true, no_move);
+            score = -alphabeta(pos, accs, -beta, -alpha, depth - 1 + ext, ply + 1, nodes, stack, hash_history, hh_table, true, no_move);
 
         board.unmake(pos, move, undo);
 
@@ -548,6 +552,8 @@ pub fn iterativelyDeepen(
     start_time: u64,
 ) Move {
     var stack: [128]Stack = std.mem.zeroes([128]Stack);
+    var accs: Accs = undefined;
+    nnue.refreshAcc(pos, &accs[0]);
     var nodes: u64 = 0;
     stopped = false;
     time_check_nodes = 0;
@@ -572,7 +578,7 @@ pub fn iterativelyDeepen(
             research += 1;
             const alpha = score -% window;
             const beta = score +% window;
-            score = alphabeta(pos, alpha, beta, i, 0, &nodes, &stack, hash_history, hh_table, true, no_move);
+            score = alphabeta(pos, &accs, alpha, beta, i, 0, &nodes, &stack, hash_history, hh_table, true, no_move);
 
             // Hard time / node limit exceeded
             if (stopped or now() >= hard_stop) {

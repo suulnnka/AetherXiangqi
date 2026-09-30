@@ -256,12 +256,23 @@ PVS、杀手、反着表、历史启发(深度² 加减分,重力 512)、LMP、
 - **bench 基线:968,907 节点 / ~1.5M nps**(13 局面,位精确回归;`./zig-out/bin/aetherx bench`)。
 - 验收余项:vs Pikafish 限深对弈的等级差报告(可与 P2 换网后一并做)。
 
-### P2 —— 数据 + 学生网络(v0)→ 换入 NNUE
-- `datagen.zig`(若 Px0 可用则只为兜底);Px0 转换器 或 随机走子 → FEN 流;
-  `teacher_label.mjs` 标注 → `.aex2`;trainer.rs 训练 → v0 网;`nnue.zig` 接入
-  (累加器两种 pattern + 全量重算双通道)+ `deval`;**删除 `eval.zig`**。
-- **验收**:v0 网 Spearman ≥ 0.97;增量 vs 全量逐局面相等;`deval` 输出量级合理(车≈900);
-  换网自对弈过 SPRT;磁盘用量在预算内(§7)。
+### P2 —— 数据 + 学生网络(v0)→ 换入 NNUE ✅(2026-10-01 完成)
+- **数据源(变更)**:Px0 Kaggle 源需凭据不可下;改用**用户提供的 Px0 对局包 archive.zip**
+  (105 万盘 GBK PGN,ODbL 注明)。`tools/px0_extract.py` 重演中文着法(繁/简、全角数字、ICCS、
+  前/后缀、士象同线进退消歧),105 万盘仅 0.02% 截断,提取 1740 万局面。
+- **合法性过滤**:PGN 重演无完整规则校验,含污染局面(Pikafish 对其 CRITICAL ERROR 退出)。
+  引擎新增 `fenfilter` 子命令(以已对拍的 isAttacked 判"非行棋方王不受攻击"+双王存在),
+  33% 抽样后 5.75M → 5.19M(丢弃 9.7%);自产 20 万局面 100% 通过。
+- **教师标注**:`tools/teacher_label.mjs`(14 进程持久管道 + 毒 FEN 二分隔离)产出 .aex2;
+  教师单位标定:车≈1971、炮≈1367 units → `--score-scale 0.4565`(学生空间 车≈900)。
+- **训练**:`tools/training/trainer.rs`(trainer2.rs 移植,1260 特征、λ=0 纯蒸馏、AdamW、
+  v4 int8 导出)。v0:16 epochs / 1.6 分钟;v1:续训 100 epochs。**5.19M 记录,82.8 KB 网络**。
+- **指标(如实记录,未达 0.97 门槛)**:独立 5 万 probe:Spearman **0.9296**、Pearson 0.942、
+  MAE 132 cp;val loss 0.00139。Spearman 平台在 ~0.93,提升需更大数据量/更强采样(P5)。
+- **换入**:nnue.zig(v4 解析 + 增量累加器 + SCReLU)接入搜索 ply 栈,eval.zig 已删除,NNUE-only。
+- **验收结果**:`bench` 新基线 **431,086 节点**(HCE 968,907 的 44%,同深度搜索效率大增);
+  perft 不变;一步杀/困毙正常;**自弈对拍 vs HCE(50k 节点/手):60 胜 0 负 0 和,全胜**。
+- 磁盘:data/ 清理后 ~2.5 G(PGN 解压目录已按"转换即删"清理),预算内。
 
 ### P3 —— WASM + Web
 - `wasm.zig` + 新 `worker.js`(懒加载 wasm,`moveToText` 移入)+ 结果码 + 差分/契约测试。

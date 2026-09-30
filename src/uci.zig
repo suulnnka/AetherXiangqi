@@ -5,7 +5,7 @@ const std = @import("std");
 const linux = std.os.linux;
 const types = @import("types.zig");
 const board = @import("board.zig");
-const evalmod = @import("eval.zig");
+const nnue = @import("nnue.zig");
 const tt = @import("tt.zig");
 const search = @import("search.zig");
 const out = @import("out.zig");
@@ -360,7 +360,7 @@ pub fn run() void {
             flushLine();
         } else if (std.mem.eql(u8, word, "deval")) {
             // Debug extension: fresh static eval, for port verification.
-            appendInt(evalmod.evaluate(&pos));
+            appendInt(nnue.evalFresh(&pos));
             append("\n");
             flushLine();
         } else if (std.mem.eql(u8, word, "dmoves")) {
