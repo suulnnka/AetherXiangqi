@@ -1,7 +1,7 @@
 // NNUE trainer for AetherXiangqi — standalone port of AetherChess3's
 // trainer2.rs (minifish/bullet recipe):
 //   * SigmoidMPE(2.6) loss, engine-faithful sigmoid (z = dot + c/400)
-//   * pure distillation defaults (WDL 0 -> 0): target = sigmoid(teacher/400)
+//   * score-fit defaults (WDL 0 -> 0): target = sigmoid(score/400)
 //   * AdamW (decoupled decay 0.01) with hard weight clip ±1.98
 //   * linear LR decay to 0, batch 16384, no warmup
 //   * v4 i8 export: FT int8 @ QA=101 + lossless exception list, out i16 @
@@ -11,7 +11,7 @@
 //   * INPUTS = 2*7*90 = 1260 (color x type x square, no king feature)
 //   * perspective rotation sq -> 89-sq (180° on the 9x10 board)
 //   * data = .aex2 (96 B/record): board[90] mailbox bytes (color*7+type,
-//     0xFF empty), stm@90, score i16@92 (teacher units, STM POV), result@94
+//     0xFF empty), stm@90, score i16@92 (engine units, STM POV), result@94
 //   * material bucket from the mailbox piece count (2..32 -> 0..7)
 //   * no mirror arch (M0 only)
 //

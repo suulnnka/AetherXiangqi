@@ -5,9 +5,8 @@
 // (no king features) and the perspective rotation changed to sq -> 89-sq.
 // SCALE=400 (cp per unit) is the search-side contract.
 //
-// The net is trained by tools/training/trainer.rs (distillation of Pikafish's
-// static NNUE eval) and embedded raw; the Rice-compressed embedding lands
-// with the wasm build (P3) where binary size matters.
+// The net is embedded raw; the Rice-compressed embedding lands with the wasm
+// build (P3) where binary size matters.
 //
 // Accumulators live OUTSIDE Position, on a per-ply stack owned by the search
 // (copy-make: each ply's accumulator is written from the parent's plus the

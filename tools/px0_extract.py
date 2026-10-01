@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Px0 PGN -> FEN stream extractor for NNUE distillation.
+"""Px0 PGN -> FEN stream extractor.
 
 The archive holds ~1.05M engine games (GBK-encoded PGNs, Chinese move
 notation, custom DeepOpen opening FENs). This replays every game on a plain
-Python board and emits sampled FENs (teacher relabels them later).
+Python board and emits sampled FENs.
 
 Chinese notation rules implemented (traditional + simplified accepted):
   [前/后/中]? piece file (action (平|进/退) (file|steps))

@@ -2,7 +2,7 @@
   "name": "aether-xiangqi",
   "version": "0.2.0",
   "type": "module",
-  "description": "AetherXiangqi:Zig 实现的中国象棋引擎(AetherChess3 架构移植,NNUE 蒸馏评估),Web UI 为零构建静态页",
+  "description": "AetherXiangqi:Zig 实现的中国象棋引擎(AetherChess3 架构移植,NNUE 评估),Web UI 为零构建静态页",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Teacher labeling: relabel FEN streams with Pikafish's static NNUE eval
-// (UCI `eval` — zero search) into .aex2 records for distillation.
+// Static-eval labeling: relabel FEN streams with a reference engine's
+// static NNUE eval (UCI `eval` — zero search) into .aex2 records.
 //
 // Record layout (96 B, little-endian):
 //   [0..89]  board[90]  mailbox byte = color*7+type (0 red / 1 black), 0xFF empty
 //   [90]     stm
 //   [91]     reserved 0
-//   [92..93] score i16 (teacher units, STM POV, clamped ±30000)
-//   [94]     result u8 (1 = draw sentinel; λ=0 distillation ignores it)
+//   [92..93] score i16 (engine units, STM POV, clamped ±30000)
+//   [94]     result u8 (1 = draw sentinel; score-only fit ignores it)
 //   [95]     padding 0
 //
-// Each worker owns one pikafish process and one output shard; shards are
+// Each worker owns one engine process and one output shard; shards are
 // merged at the end. A wedged/dead engine requeues its chunk.
 //
 // Usage: node tools/teacher_label.mjs <out.aex2> <fen files...> [--pika PATH] [--workers N]

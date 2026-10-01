@@ -1,9 +1,8 @@
-// Position datagen for NNUE distillation: multi-threaded random playouts from
-// startpos, writing deduplicated FENs (one per line) to per-worker shard files.
+// Position datagen: multi-threaded random playouts from startpos, writing
+// deduplicated FENs (one per line) to per-worker shard files.
 // Sampling mix: uniform random games and capture-weighted games, game lengths
 // 20..150 plies, 60-move rule termination — coverage from opening to deep
-// endgame. The teacher (Pikafish static eval) relabels these later; nothing
-// here runs a search.
+// endgame. Nothing here runs a search.
 //
 // Usage: aetherx datagen <out_prefix> <total_positions> <seed> [workers]
 const std = @import("std");

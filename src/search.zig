@@ -1,7 +1,6 @@
 // Search: PVS with the full 4ku pruning bundle, TT probing, PV extraction,
-// and iterative deepening. Ported from AetherChess3's search.zig; the NNUE
-// accumulator stack is absent while the P1 temporary HCE is in place (eval is
-// recomputed per node) — the distilled NNUE reintroduces it in P2.
+// and iterative deepening. Ported from AetherChess3's search.zig, with the
+// NNUE accumulator stack on the per-ply search stack (copy-make updates).
 //
 // Xiangqi deltas vs the chess original:
 //   * terminal nodes: checkmate AND stalemate (困毙) both score ply - mate

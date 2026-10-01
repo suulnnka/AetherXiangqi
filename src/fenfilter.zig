@@ -1,8 +1,8 @@
 // FEN legality filter: reads a FEN-per-line file, keeps positions that are
 // legal xiangqi states — both kings present and the side NOT to move is not
-// in check (its king not attacked by the mover, flying-general included —
-// which is exactly Pikafish's "King can be captured" rejection, plus facing
-// kings). Uses the engine's differentially-verified isAttacked tables.
+// in check (its king not attacked by the mover, "King can be captured"
+// rejection, flying-general included). Uses the engine's
+// differentially-verified isAttacked tables.
 //
 // Usage: aetherx fenfilter <in.fen> <out.fen>
 const std = @import("std");

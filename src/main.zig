@@ -1,8 +1,7 @@
 // AetherXiangqi — Xiangqi engine ported from AetherChess3's architecture
 // (4ku-derived search, MIT). Modules: types.zig, board.zig (u128 bitboards,
-// movegen, make/unmake, FEN, perft, hashing), eval.zig (temporary HCE until
-// the distilled NNUE lands in P2), see.zig, tt.zig, search.zig, uci.zig,
-// out.zig, tunables.zig.
+// movegen, make/unmake, FEN, perft, hashing), see.zig, tt.zig, search.zig,
+// uci.zig, out.zig, tunables.zig, nnue.zig, datagen.zig, fenfilter.zig.
 const std = @import("std");
 const types = @import("types.zig");
 const board = @import("board.zig");

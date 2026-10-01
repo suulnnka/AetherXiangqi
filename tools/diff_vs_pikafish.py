@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Differential rules test: AetherXiangqi (zig) vs Pikafish.
+"""Differential rules test: AetherXiangqi (zig) vs a reference engine.
 
 Plays random legal games with the aetherx movegen; at every ply both engines
 receive the same `position startpos moves ...` and we compare the FULL legal
-move sets (aetherx `dmoves` vs pikafish `go perft 1` per-move breakdown).
+move sets (aetherx `dmoves` vs reference `go perft 1` per-move breakdown).
 Any mismatch pinpoints a movegen bug.
 
 Usage:

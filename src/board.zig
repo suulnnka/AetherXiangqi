@@ -451,7 +451,7 @@ pub fn setupPosition(pos: *Position) void {
 }
 
 // ---------------------------------------------------------------------------
-// FEN (Pikafish dialect): rows rank 9 -> 0, letters rnbakcp, uppercase Red;
+// FEN (xiangqi UCI dialect): rows rank 9 -> 0, letters rnbakcp, uppercase Red;
 // side 'w'/'r' = Red (moves first), 'b' = Black; then two ignored fields
 // ("-", "-"), then the halfmove clock (plies since last capture).
 // ---------------------------------------------------------------------------
@@ -516,7 +516,7 @@ pub fn setFen(pos: *Position, fen: []const u8) void {
     setupPosition(pos);
 }
 
-/// Serialize the position to a Pikafish-dialect FEN (for dfen / datagen).
+/// Serialize the position to a xiangqi-UCI-dialect FEN (for dfen / datagen).
 pub fn fenStr(pos: *const Position, buf: []u8) []const u8 {
     var len: usize = 0;
     var row: i32 = 9;

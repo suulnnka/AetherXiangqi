@@ -1,4 +1,4 @@
-// UCI front-end (Pikafish dialect): stdin tokenizer, option handling, the
+// UCI front-end (xiangqi UCI dialect): stdin tokenizer, option handling, the
 // command loop, the move-application branch, and the fixed-depth bench
 // command. Ported from AetherChess3's uci.zig.
 const std = @import("std");
@@ -29,8 +29,8 @@ const appendMoveStr = out.appendMoveStr;
 const flushLine = out.flushLine;
 
 // ---------------------------------------------------------------------------
-// Bench — all positions differentially verified against Pikafish (identical
-// legal move sets, tools/diff_vs_pikafish.py) before being added here.
+// Bench — all positions differentially verified (identical legal move sets)
+// before being added here.
 // The node total is the bit-exact regression baseline for this engine.
 // ---------------------------------------------------------------------------
 const BenchPos = struct { fen: []const u8, depth: i32 };
