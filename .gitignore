@@ -7,7 +7,7 @@ dist/
 .zig-cache/
 zig-out/
 aetherx
-wasm/*.wasm
+
 
 # 训练数据与产物(受 docs/ROADMAP.md §7 的 100G 磁盘预算管控)
 data/

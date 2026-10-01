@@ -280,9 +280,17 @@ PVS、杀手、反着表、历史启发(深度² 加减分,重力 512)、LMP、
   perft 不变;一步杀/困毙正常;**自弈对拍 vs HCE(50k 节点/手):60 胜 0 负 0 和,全胜**。
 - 磁盘:data/ 清理后 ~2.5 G(PGN 解压目录已按"转换即删"清理),预算内。
 
-### P3 —— WASM + Web
-- `wasm.zig` + 新 `worker.js`(懒加载 wasm,`moveToText` 移入)+ 结果码 + 差分/契约测试。
-- **验收**:`wasm_diff_test` 全绿;Pages 对局页恢复 AI(wasm 后端);UI 零改动或仅换 levels 表。
+### P3 —— WASM + Web ✅(2026-10-01 完成)
+- `src/wasm.zig`(90 格导出面:Init/New/MovesBuf/Load/State/BoardPtr/Stm/LegalPtr/Count/
+  Check(side)/Over/Result/Winner/EvalCp/Think/Score/Depth/NodesLo/Hi/Bind/Perft;
+  静态缓冲零分配;坐标/编码按 v0.1-js 协议转换,conv 为行翻转对合)+ 新 `src/worker.js`
+  (懒加载 wasm,`moveToText` 移植,五档节点预算难度表,和棋类结果暂不转发为终局——UI 无和棋流程,与 v0.1 行为一致)。
+- **验收结果**:`tools/wasm_diff_test.mjs` 全绿 —— wasm perft d1–4 精确;40 局随机对局 / 4,697 局面
+  合法集(wire)、棋盘字节、NNUE eval 与原生引擎逐局面一致;think 冒烟通过。
+  `tools/worker-test.mjs` 契约全绿(levels 不触发加载、中文记谱「炮二平五」、state/think 回合);
+  HTTP 真实相对路径集成:worker 从页面 URL fetch wasm 引导,AI 实测「炮八平五」depth 11 / 100k 节点 / 131ms
+  (≈0.76M nps)。
+- **体积:wasm/aetherx.wasm 100,008 B,gzip 69,599 B**(内嵌 52.4 KB Rice 网;随仓库提交,Pages 直接出页)。
 
 ### P4 —— SPSA 调优 ❌(2026-10-01 拍板:不做)
 - 用户决定:模型不重训、参数不调——v1 蒸馏网即最终版,tunables 维持 A3 缺省值。
