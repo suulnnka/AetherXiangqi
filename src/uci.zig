@@ -6,6 +6,7 @@ const linux = std.os.linux;
 const types = @import("types.zig");
 const board = @import("board.zig");
 const nnue = @import("nnue.zig");
+const book = @import("book.zig");
 const tt = @import("tt.zig");
 const search = @import("search.zig");
 const out = @import("out.zig");
@@ -173,6 +174,12 @@ pub fn run() void {
     var hh_table = std.mem.zeroes([2][2][90][90]i32);
     var reader = Reader{};
 
+    // 开局谱上下文:着法历史(position 清空 / apply 追加)供跟谱与命名重放
+    var game_moves: [1024]Move = undefined;
+    var game_moves_len: usize = 0;
+    var from_startpos = true;
+    var ownbook = true;
+
     // Wait for "uci"
     _ = reader.next();
 
@@ -182,6 +189,7 @@ pub fn run() void {
     append("option name Hash type spin default ");
     appendInt(tt.num_tt_entries * @sizeOf(TTEntry) / (1024 * 1024));
     append(" min 1 max 65536\n");
+    append("option name OwnBook type check default true\n");
     append("uciok\n");
     flushLine();
 
@@ -212,6 +220,11 @@ pub fn run() void {
                 const clamped: u64 = @intCast(@max(1, @min(65536, megabytes)));
                 tt.num_tt_entries = clamped * 1024 * 1024 / @sizeOf(TTEntry);
                 tt.allocTT(tt.num_tt_entries);
+            } else if (std.mem.eql(u8, opt, "OwnBook")) {
+                _ = reader.next() orelse break; // "value"
+                if (reader.next()) |v| {
+                    ownbook = !std.mem.eql(u8, v, "false");
+                }
             }
         } else if (std.mem.eql(u8, word, "go")) {
             // Full go parsing: wtime/btime/winc/binc, movetime, depth, nodes,
@@ -276,8 +289,25 @@ pub fn run() void {
             search.limits = .{ .depth = depth_lim, .nodes = nodes_lim, .soft = soft };
             search.hard_stop = start +% @as(u64, @intCast(hard));
 
-            var dummy_nodes: u64 = 0;
-            const best_move = iterativelyDeepen(&pos, &hash_history, &hh_table, 0, &dummy_nodes, optimum, start);
+            var best_move = types.no_move;
+            if (ownbook and from_startpos and !infinite) {
+                if (book.probe(&pos, game_moves[0..game_moves_len], @truncate(types.now()))) |bm| {
+                    var nbuf: [96]u8 = undefined;
+                    const nm = book.openingName(game_moves[0..game_moves_len], &nbuf);
+                    append("info string book ");
+                    if (nm.len > 0) {
+                        append(nm);
+                        append(" ");
+                    }
+                    appendMoveStr(bm);
+                    append("\n");
+                    best_move = bm;
+                }
+            }
+            if (types.moveEq(best_move, types.no_move)) {
+                var dummy_nodes: u64 = 0;
+                best_move = iterativelyDeepen(&pos, &hash_history, &hh_table, 0, &dummy_nodes, optimum, start);
+            }
             append("bestmove ");
             if (types.moveEq(best_move, types.no_move))
                 append("(none)") // terminal position: mated or 困毙
@@ -289,6 +319,7 @@ pub fn run() void {
             // Set to startpos
             setFen(&pos, board.startpos_fen);
             hash_history.clear();
+            game_moves_len = 0; // 后续 moves 令牌经走子分支重新累积
 
             var fen: [128]u8 = undefined;
             var fen_len: usize = 0;
@@ -314,8 +345,12 @@ pub fn run() void {
                 }
             }
 
-            if (fen_len > 0)
+            if (fen_len > 0) {
                 setFen(&pos, fen[0..fen_len]);
+                from_startpos = false;
+            } else {
+                from_startpos = true;
+            }
         } else if (std.mem.eql(u8, word, "perft")) {
             const depth = reader.nextInt(i32) orelse 0;
             const t0 = now();
@@ -384,6 +419,10 @@ pub fn run() void {
                     // the halfmove clock (plies since the last capture) bounds
                     // the scan window exactly in xiangqi.
                     hash_history.push(pos.hash);
+                    if (game_moves_len < game_moves.len) {
+                        game_moves[game_moves_len] = move;
+                        game_moves_len += 1;
+                    }
                     break;
                 }
             }

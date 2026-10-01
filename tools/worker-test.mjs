@@ -66,12 +66,26 @@ self.onmessage({ data: { type: 'state', id: 2, moves: [mv1] } });
 const s1 = await wait(d => d.type === 'state' && d.id === 2, 'state after move');
 check('lastText 炮二平五', s1.lastText === '炮二平五', `got "${s1.lastText}"`);
 check('stm flipped', s1.stm === 1);
+check('opening 中炮', s1.opening === '中炮', `got "${s1.opening}"`);
 
 // 5. think round trip at level 0 (10k nodes)
 self.onmessage({ data: { id: 3, moves: [], level: 0 } });
 const th = await wait(d => d.id === 3 && d.move !== undefined, 'think');
 check('think move+text', th.move !== 0 && typeof th.text === 'string' && th.text.length >= 3, `move=${th.move} text="${th.text}"`);
-check('think stats', th.depth > 0 && th.nodes > 1000 && th.ms >= 0 && typeof th.score === 'number');
+check('think reply shape', th.ms >= 0 && typeof th.score === 'number');
+
+// 5b. 开局谱 → 搜索:跟谱期 nodes=0,持续走子直到出谱后必须真搜索
+{
+  let moves = [];
+  let nodes = 0, depth = 0;
+  for (let k = 0; k < 12 && nodes === 0; k++) {
+    self.onmessage({ data: { id: 30 + k, moves, level: 0 } });
+    const t = await wait(d => d.id === 30 + k && d.move !== undefined, 'think loop');
+    moves.push(t.move);
+    nodes = t.nodes; depth = t.depth;
+  }
+  check('think searches after book window', nodes > 0 && depth > 0, `nodes=${nodes} depth=${depth}`);
+}
 
 // 6. terminal state: a short forced-mate line — 3k5/4R4/R8/... with black to move
 self.onmessage({ data: { type: 'state', id: 4, moves: [], } });

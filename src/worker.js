@@ -67,6 +67,17 @@ function boardArray() {
   return Array.from(new Int8Array(MEM(), api.engineBoardPtr(), 90));
 }
 
+/* 当前开局名(engineState 时更新;UTF-8 C 字符串) */
+function openingName() {
+  const p = api.engineOpeningPtr();
+  if (!p) return null;
+  const bytes = new Uint8Array(MEM(), p, 96);
+  let n = bytes.indexOf(0);
+  if (n < 0) n = 96;
+  const s = new TextDecoder().decode(bytes.subarray(0, n));
+  return s || null;
+}
+
 /* ---------- 中文记谱(v0.1-js moveToText 移植,读走子前的盘) ---------- */
 const NAME_R = ['', '帅', '仕', '相', '马', '车', '炮', '兵'];
 const NAME_B = ['', '将', '士', '象', '马', '车', '炮', '卒'];
@@ -129,6 +140,7 @@ async function describeState(d) {
     over,
     winner: over ? api.engineWinner() : -1,
     lastText: text,
+    opening: openingName(),
   };
 }
 
@@ -162,9 +174,9 @@ self.onmessage = async (e) => {
   if (!(await boot())) { self.postMessage({ id: d.id, error: 'wasm-load-failed' }); return; }
   if (!loadMoves(d.moves)) { self.postMessage({ id: d.id, error: 'illegal-sequence' }); return; }
   const lv = LEVELS[d.level] ?? LEVELS[DEFAULT_LEVEL];
-  /* 记谱读走子前盘面 */
+  /* 记谱读走子前盘面;seed 供开局谱抽签(wasm 无墙钟) */
   const before = boardArray();
-  const mv = api.engineThink(0, lv.nodes);
+  const mv = api.engineThink(0, lv.nodes, (Math.random() * 0x7fffffff) | 0);
   const lo = api.engineNodesLo() >>> 0, hi = api.engineNodesHi() >>> 0;
   const score = api.engineScore();
   self.postMessage({

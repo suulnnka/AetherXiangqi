@@ -2,7 +2,8 @@
 
 Zig 实现的中国象棋(Xiangqi)引擎,架构**全面移植自 [AetherChess3](https://github.com/suulnnka/AetherChess3)**
 (Zig 0.16.0):合法走法生成、alpha-beta 全家桶搜索、NNUE 评估、
-WASM 导出与零构建 Web UI。**不做开局库。**
+WASM 导出与零构建 Web UI。内置**阵型级开局谱**(中炮对屏风马这个深度:双方各跟
+3–4 步定型着法,配对概率加权随机,开局名随棋局即时显示;UCI `OwnBook` 可关)。
 
 **在线对弈**:[suulnnka.github.io/AetherXiangqi](https://suulnnka.github.io/AetherXiangqi/)
 (对弈页 UI 移植自 [AetherWebOS](https://github.com/suulnnka/AetherWebOS) 的中国象棋应用,
@@ -18,7 +19,7 @@ WASM 导出与零构建 Web UI。**不做开局库。**
 
 ## 布局
 
-- `src/` — Zig 引擎(types / board / see / search / tt / nnue / tunables / uci / main / wasm / datagen / fenfilter / out)
+- `src/` — Zig 引擎(types / board / see / search / tt / nnue / book / tunables / uci / main / wasm / datagen / fenfilter / out)
 - `tools/` — wasm 构建、对拍与调参脚本
 - `pages/` `index.html` — 对弈页(SVG 棋盘 + 中文记谱,零构建)
 - `wasm/` — 内嵌 NNUE 的 wasm 产物(随仓库提交,Pages 直接出页)

@@ -140,11 +140,19 @@ const wasmState = () => {
 }
 
 // ---- 4. think smoke ----
+// 开局谱:跟谱窗口内 think 直接回谱着(nodes=0),出谱后必须真搜索
 {
-  loadWire([]);
-  const mv = W.engineThink(0, 30000);
-  check('think returns legal move', mv !== 0 && W.engineState() && Array.from(new Int32Array(W.memory.buffer, W.engineLegalPtr(), W.engineLegalCount())).includes(mv));
-  check('think nodes>0', (W.engineNodesLo() >>> 0) + (W.engineNodesHi() >>> 0) * 4294967296 > 0);
+  const seq = [];
+  let searched = false;
+  for (let k = 0; k < 12 && !searched; k++) {
+    loadWire(seq);
+    const mv = W.engineThink(0, 30000, k + 1);
+    check(`think ${k} returns legal move`, mv !== 0 && W.engineState() && Array.from(new Int32Array(W.memory.buffer, W.engineLegalPtr(), W.engineLegalCount())).includes(mv));
+    const nodes = (W.engineNodesLo() >>> 0) + (W.engineNodesHi() >>> 0) * 4294967296;
+    if (nodes > 0) searched = true;
+    else seq.push(mv);
+  }
+  check('think searches after book window', searched);
 }
 
 native.kill();

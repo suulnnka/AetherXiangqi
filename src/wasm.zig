@@ -1,5 +1,5 @@
 // wasm 导出层:C ABI、零导入、零运行时分配,浏览器 worker 直接加载(A3 模式)。
-// 背后是本引擎的 NNUE 搜索;无开局库。
+// 背后是本引擎的 NNUE 搜索 + 阵型级开局谱(跟谱窗口内直接返回谱着)。
 //
 // 坐标/编码翻译(协议侧保持 v0.1-js 约定,引擎侧用本引擎约定):
 //   · 格子:协议 row0=黑方底线(上) ⇄ 引擎 row0=红方底线,一律 sq 翻转行:
@@ -13,6 +13,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const board = @import("board.zig");
 const nnue = @import("nnue.zig");
+const book = @import("book.zig");
 const tt = @import("tt.zig");
 const search = @import("search.zig");
 
@@ -34,6 +35,11 @@ var movesBuf: [256]Move = undefined;
 var legalOut = [_]i32{0} ** 256; // 线格式(协议坐标)
 var boardOut = [_]i8{0} ** 90; // 协议棋盘字节
 var acc: nnue.Acc = undefined;
+
+// 开局谱上下文:engineLoad 重演的完整着法序列(引擎坐标)+ 命名缓冲
+var game_moves: [1024]Move = undefined;
+var game_moves_len: usize = 0;
+var opening_buf: [96]u8 = [_]u8{0} ** 96;
 
 // state 回包事实
 var legalCount: i32 = 0;
@@ -59,6 +65,8 @@ fn resetGame() void {
     hhTable = std.mem.zeroes([2][2][90][90]i32);
     @memset(tt.transposition_table, types.TTEntry{});
     hist = .{ .items = histBuf[0..], .len = 0 };
+    game_moves_len = 0;
+    opening_buf[0] = 0;
 }
 
 // ---------- 坐标/编码 ----------
@@ -114,6 +122,10 @@ export fn engineLoad(n: i32) i32 {
         const minfo = board.prepareMove(&pos, mv);
         _ = board.make(&pos, minfo, mv);
         hist.push(pos.hash);
+        if (game_moves_len < game_moves.len) {
+            game_moves[game_moves_len] = mv;
+            game_moves_len += 1;
+        }
     }
     return 1;
 }
@@ -128,6 +140,8 @@ export fn engineState() i32 {
         w += 1;
     }
     legalCount = @intCast(w);
+    const nm = book.openingName(game_moves[0..game_moves_len], &opening_buf);
+    opening_buf[nm.len] = 0;
     const stm: usize = pos.stm;
     checkOut[0] = board.isAttacked(&pos, pos.king_sq[0], 1);
     checkOut[1] = board.isAttacked(&pos, pos.king_sq[1], 0);
@@ -197,9 +211,22 @@ export fn engineEvalCp() i32 {
     return nnue.evalAcc(&pos, &acc);
 }
 
+/// 当前开局名(UTF-8 C 字符串;空串 = 未识别)。engineState 时更新。
+export fn engineOpeningPtr() i32 {
+    return @intCast(@intFromPtr(&opening_buf));
+}
+
 // ---------- 搜索 ----------
-export fn engineThink(depthMax: i32, nodeLimit: i32) i32 {
+/// seed 由 worker 传入(wasm 无墙钟),保证对局间开局抽签有随机性
+export fn engineThink(depthMax: i32, nodeLimit: i32, seed: i32) i32 {
     ensureInit();
+    if (book.probe(&pos, game_moves[0..game_moves_len], @as(u32, @bitCast(seed)))) |bm| {
+        search.last_nodes = 0;
+        search.last_depth = 0;
+        search.last_score = 0;
+        lastNodes = 0;
+        return wireMove(bm);
+    }
     search.limits = .{ .depth = @max(depthMax, 0), .nodes = 0, .soft = false };
     if (nodeLimit > 0) search.limits.nodes = @intCast(nodeLimit);
     search.hard_stop = std.math.maxInt(u64); // 无墙钟:节点/深度是唯一上限

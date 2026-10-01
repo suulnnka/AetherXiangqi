@@ -49,6 +49,9 @@ const B = new Eng(engB);
 A.cmd('uci'); B.cmd('uci');
 await A.until('uciok');
 await B.until('uciok');
+/* 测对要的是纯搜索强度:关掉开局谱的随机跟谱 */
+A.cmd('setoption name OwnBook value false');
+B.cmd('setoption name OwnBook value false');
 
 let aWin = 0, bWin = 0, draw = 0;
 const t0 = Date.now();

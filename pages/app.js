@@ -157,6 +157,7 @@ let sel = -1;                        // 选中的格子
 let tgts = new Map();                // 选中子能去的格子 → 是否吃子
 let lastMove = null;
 let gameOver = false;
+let curOpening = '';                   // 当前开局名(state 回包回填,逐步演进)
 let vsAI = true;
 let searching = false;
 let levels = [];                     // 难度表由**引擎自报**({type:'levels'})
@@ -235,7 +236,9 @@ function render() {
 
 function updateStatus() {
   if (gameOver) return;
-  statusL.textContent = sideName(turn) + '行棋' + (checked[turn] ? ' — 将军!⚠' : '');
+  statusL.textContent =
+    (curOpening ? curOpening + ' · ' : '') +
+    sideName(turn) + '行棋' + (checked[turn] ? ' — 将军!⚠' : '');
   const last = hist.length ? ` · 上一手 ${hist[hist.length - 1].text}` : '';
   setTitle(`中国象棋 — ${sideName(turn)}行棋${checked[turn] ? '(将军)' : ''}${last}`);
 }
@@ -263,6 +266,7 @@ function applyState(d) {
   checked = d.checked;
   turn = d.stm;
   if (hist.length && d.lastText) hist[hist.length - 1].text = d.lastText;
+  if (d.opening) curOpening = d.opening;
   if (d.over) { endGame(d.winner, checked[d.winner ^ 1]); return; }
   render();
   if (checked[turn]) toast('中国象棋:' + `${sideName(turn)}被将军`);
@@ -397,6 +401,7 @@ function resetGame() {
   cancelEndDlg();
   turn = RED; hist = []; sel = -1; lastMove = null;
   gameOver = false;
+  curOpening = '';
   board = new Array(90).fill(0); legalAll = []; checked = [false, false];
   render();
   fetchState();                                // 初始局面事实照问引擎
