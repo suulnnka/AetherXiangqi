@@ -254,7 +254,9 @@ PVS、杀手、反着表、历史启发(深度² 加减分,重力 512)、LMP、
 - 已移植:`eval.zig(v0.1-js HCE)/ see(炮屏逐层重算)/ tt / search(A3 全家桶,NMP 守卫=有车马炮,
   困毙=负,60 回合=和)/ tunables(A3X_*)/ uci(Pikafish 方言 + dfen/dhash/dhashfull/dhm/deval/dmoves)/ main`。
 - **bench 基线:968,907 节点 / ~1.5M nps**(13 局面,位精确回归;`./zig-out/bin/aetherx bench`)。
-- 验收余项:vs Pikafish 限深对弈的等级差报告(可与 P2 换网后一并做)。
+- ~~验收余项:vs Pikafish 限深对弈的等级差报告~~ → 已由 P2 后的对比覆盖:
+  vs HCE(50k 节点)60-0-0;**vs 原版 JS 引擎 v0.1-js(tools/match_vs_js.mjs,等节点预算)
+  50k 节点 100-0-0、200k 节点 40-0-0 —— 100% 胜率,差距 >400 Elo(碾压级)**。
 
 ### P2 —— 数据 + 学生网络(v0)→ 换入 NNUE ✅(2026-10-01 完成)
 - **数据源(变更)**:Px0 Kaggle 源需凭据不可下;改用**用户提供的 Px0 对局包 archive.zip**
