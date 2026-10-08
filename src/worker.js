@@ -36,7 +36,10 @@ async function boot() {
   if (booting) return booting;
   booting = (async () => {
     try {
-      const res = await fetch(new URL('../wasm/aetherx.wasm', self.location.href));
+      /* import.meta.url(而非 self.location.href):对弈页 src/worker.js
+       * 与 wasm/ 的相对布局不变;打包器(Vite)只认这个形态,才会把
+       * wasm 当资产改写进产物(AetherRenju worker 同款写法) */
+      const res = await fetch(new URL('../wasm/aetherx.wasm', import.meta.url));
       const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), {});
       api = instance.exports;
       api.engineInit();
